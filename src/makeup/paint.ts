@@ -10,6 +10,10 @@
 // at the stroke's flow: a second stroke over it builds the colour up.
 // Painting with one finish also wipes the same amount from the other two, so
 // the newest paint is the one you see.
+//
+// Each finish has two textures: the committed paint, and what the face shows
+// (the committed paint plus the stroke still being drawn). Undo repaints the
+// committed paint from the list without its last entry.
 import {
   AddEquation,
   BufferAttribute,
@@ -21,6 +25,7 @@ import {
   LinearMipmapLinearFilter,
   MaxEquation,
   Mesh,
+  NoBlending,
   OneFactor,
   OneMinusSrcAlphaFactor,
   OrthographicCamera,
@@ -37,7 +42,7 @@ import {
 
 import type { Dab } from "./atlas";
 import { fillMask } from "./masks";
-import { FINISHES, type FillArea, type Finish } from "./palette";
+import { FILL_AREAS, FINISHES, type FillArea, type Finish } from "./palette";
 
 /** Paint texture size (texels). The face spans ~20 cm across it: 0.2 mm a texel. */
 export const PAINT_SIZE = 1024;
@@ -84,8 +89,11 @@ const dabMaterial = () =>
       uniform float uHardness;
       varying vec2 vLocal;
       void main() {
-        float c = 1.0 - smoothstep(uHardness, 1.0, length(vLocal));
-        gl_FragColor = vec4(c);
+        float d = length(vLocal);
+        float hard = 1.0 - smoothstep(uHardness, 1.0, d);
+        // The softest brushes fade like powder: a bell with no edge to it.
+        float soft = exp(-4.5 * d * d) * (1.0 - smoothstep(0.75, 1.0, d));
+        gl_FragColor = vec4(mix(soft, hard, smoothstep(0.0, 0.3, uHardness)));
       }`,
     blending: CustomBlending,
     blendEquation: MaxEquation,
@@ -145,6 +153,20 @@ const layMaterial = (erase: boolean) =>
     depthWrite: false,
   });
 
+/** A plain copy of one texture into another. */
+const copyMaterial = () =>
+  new ShaderMaterial({
+    uniforms: { uSource: { value: null as Texture | null } },
+    vertexShader: QUAD_VERTEX,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D uSource;
+      varying vec2 vUv;
+      void main() { gl_FragColor = texture2D(uSource, vUv); }`,
+    blending: NoBlending,
+    depthTest: false,
+    depthWrite: false,
+  });
+
 /** "#rrggbb" as sRGB numbers 0..1 (no colour management: the shader decodes). */
 const srgb = (hex: string, out: Vector3) => {
   const h = hex.replace("#", "");
@@ -194,6 +216,16 @@ const dabGeometry = (dabs: Dab[], r: number) => {
   return g;
 };
 
+/** Clears a paint texture to transparent. */
+const clearTarget = (gl: WebGLRenderer, target: WebGLRenderTarget) => {
+  gl.setRenderTarget(target);
+  gl.setClearColor(0x000000, 0);
+  gl.clear(true, false, false);
+};
+
+/** A stroke being drawn: everything but its dabs is known from the start. */
+export type StrokeStart = Omit<Extract<PaintOp, { kind: "stroke" }>, "dabs">;
+
 export class PaintBook {
   /** The paint textures the face layers read, one per finish. */
   readonly textures: Record<Finish, Texture>;
@@ -204,11 +236,17 @@ export class PaintBook {
   /** Bumped on every change. */
   version = 0;
 
-  private readonly layers: Record<Finish, WebGLRenderTarget>;
+  /** The committed paint, per finish. */
+  private readonly base: Record<Finish, WebGLRenderTarget>;
+
+  /** What the face shows, per finish. */
+  private readonly shown: Record<Finish, WebGLRenderTarget>;
 
   private readonly scratch = paintTarget(false);
 
   private readonly masks = new Map<FillArea, DataTexture>();
+
+  private readonly maskData = new Map<FillArea, Uint8ClampedArray>();
 
   private readonly listeners = new Set<() => void>();
 
@@ -226,19 +264,27 @@ export class PaintBook {
 
   private readonly wipe = layMaterial(true);
 
+  private readonly copy = copyMaterial();
+
   private renderer: WebGLRenderer | null = null;
 
-  /** Drawn ops; the rest wait for a renderer. */
+  /** Ops already in the committed paint; the rest wait for a renderer. */
   private drawn = 0;
 
+  /** The stroke being drawn, if any. */
+  private live: Extract<PaintOp, { kind: "stroke" }> | null = null;
+
   constructor() {
-    const layers = {} as Record<Finish, WebGLRenderTarget>;
+    const base = {} as Record<Finish, WebGLRenderTarget>;
+    const shown = {} as Record<Finish, WebGLRenderTarget>;
     const textures = {} as Record<Finish, Texture>;
     FINISHES.forEach((f) => {
-      layers[f] = paintTarget(true);
-      textures[f] = layers[f].texture;
+      base[f] = paintTarget(false);
+      shown[f] = paintTarget(true);
+      textures[f] = shown[f].texture;
     });
-    this.layers = layers;
+    this.base = base;
+    this.shown = shown;
     this.textures = textures;
     this.lay.uniforms.uCoverage.value = this.scratch.texture;
     this.wipe.uniforms.uCoverage.value = this.scratch.texture;
@@ -248,7 +294,7 @@ export class PaintBook {
   attach(renderer: WebGLRenderer | null) {
     this.renderer = renderer;
     if (!renderer) return;
-    this.redraw();
+    this.repaint();
   }
 
   subscribe(fn: () => void) {
@@ -260,21 +306,115 @@ export class PaintBook {
 
   /** Paints one thing and remembers it. */
   apply(op: PaintOp) {
+    this.cancelStroke();
     this.ops.push(op);
     this.flush();
     this.changed();
   }
 
+  /** Takes back the last thing painted. */
+  undo() {
+    this.cancelStroke();
+    if (this.ops.length === 0) return;
+    this.ops.pop();
+    this.repaint();
+    this.changed();
+  }
+
   /** Wipes the face clean. */
   clear() {
+    this.live = null;
     this.ops.length = 0;
-    this.redraw();
+    this.repaint();
     this.changed();
   }
 
   /** True when nothing is painted. */
   get empty() {
-    return this.ops.length === 0;
+    return this.ops.length === 0 && !this.live;
+  }
+
+  /** Starts a brush stroke; dabs follow with `extendStroke`. */
+  beginStroke(stroke: StrokeStart) {
+    this.cancelStroke();
+    this.live = { ...stroke, kind: "stroke", dabs: [] };
+    this.withRenderer((gl) => clearTarget(gl, this.scratch));
+  }
+
+  /** Adds dabs to the stroke being drawn and shows it. */
+  extendStroke(dabs: Dab[]) {
+    const { live } = this;
+    if (!live || dabs.length === 0) return;
+    live.dabs.push(...dabs);
+    this.withRenderer((gl) => {
+      this.drawDabs(gl, dabs, live.radius, live.hardness);
+      // The face shows the committed paint with the stroke over it.
+      this.copyInto(gl, this.base[live.finish], this.shown[live.finish]);
+      this.setLay(live);
+      gl.setRenderTarget(this.shown[live.finish]);
+      this.render(gl, new Mesh(this.quad, this.lay));
+    });
+  }
+
+  /** Finishes the stroke: it joins the paint (and the undo list). */
+  endStroke() {
+    const { live } = this;
+    this.live = null;
+    if (!live) return;
+    if (live.dabs.length === 0) {
+      this.syncShown(live.finish);
+      return;
+    }
+    this.ops.push(live);
+    this.withRenderer((gl) => {
+      // The scratch already holds the stroke's coverage.
+      this.layScratch(gl, live);
+      FINISHES.forEach((f) => this.copyInto(gl, this.base[f], this.shown[f]));
+    });
+    this.drawn = this.ops.length;
+    this.changed();
+  }
+
+  /** Drops the stroke being drawn. */
+  cancelStroke() {
+    const { live } = this;
+    if (!live) return;
+    this.live = null;
+    this.syncShown(live.finish);
+  }
+
+  /** How strongly fill `area` covers the atlas texel at (u, v), 0..1. */
+  areaStrength(area: FillArea, u: number, v: number) {
+    const m = this.maskArray(area);
+    const x = Math.min(PAINT_SIZE - 1, Math.max(0, Math.floor(u * PAINT_SIZE)));
+    const y = Math.min(
+      PAINT_SIZE - 1,
+      Math.max(0, Math.floor((1 - v) * PAINT_SIZE)),
+    );
+    return m[y * PAINT_SIZE + x] / 255;
+  }
+
+  /**
+   * Builds the fill masks a little at a time while the page is idle, so the
+   * first tap on an area never waits. Returns a cancel.
+   */
+  prepareMasks() {
+    let cancelled = false;
+    const idle =
+      window.requestIdleCallback ??
+      ((fn: () => void) => window.setTimeout(fn, 50));
+    const next = (k: number) => {
+      if (cancelled || k >= FILL_AREAS.length) return;
+      idle(() => {
+        if (cancelled) return;
+        this.maskTexture(FILL_AREAS[k]);
+        next(k + 1);
+      });
+    };
+    next(0);
+    return () => {
+      cancelled = true;
+    };
   }
 
   private changed() {
@@ -282,26 +422,34 @@ export class PaintBook {
     this.listeners.forEach((fn) => fn());
   }
 
-  /** Clears the textures and paints every op again. */
-  private redraw() {
+  /** Clears the committed paint and paints every op again. */
+  private repaint() {
     this.drawn = 0;
     this.withRenderer((gl) => {
-      gl.setClearColor(0x000000, 0);
-      FINISHES.forEach((f) => {
-        gl.setRenderTarget(this.layers[f]);
-        gl.clear(true, false, false);
-      });
+      FINISHES.forEach((f) => clearTarget(gl, this.base[f]));
     });
     this.flush();
+    this.withRenderer((gl) => {
+      FINISHES.forEach((f) => this.copyInto(gl, this.base[f], this.shown[f]));
+    });
   }
 
   private flush() {
-    this.withRenderer(() => {
+    this.withRenderer((gl) => {
+      const from = this.drawn;
       while (this.drawn < this.ops.length) {
-        this.draw(this.ops[this.drawn]);
+        this.draw(gl, this.ops[this.drawn]);
         this.drawn += 1;
       }
+      if (this.drawn > from)
+        FINISHES.forEach((f) => this.copyInto(gl, this.base[f], this.shown[f]));
     });
+  }
+
+  private syncShown(finish: Finish) {
+    this.withRenderer((gl) =>
+      this.copyInto(gl, this.base[finish], this.shown[finish]),
+    );
   }
 
   /** Runs `fn` with the renderer, leaving its target and clear state as they were. */
@@ -331,11 +479,30 @@ export class PaintBook {
     this.scene.remove(mesh);
   }
 
+  private copyInto(
+    gl: WebGLRenderer,
+    from: WebGLRenderTarget,
+    to: WebGLRenderTarget,
+  ) {
+    this.copy.uniforms.uSource.value = from.texture;
+    gl.setRenderTarget(to);
+    this.render(gl, new Mesh(this.quad, this.copy));
+  }
+
+  private maskArray(area: FillArea) {
+    let m = this.maskData.get(area);
+    if (!m) {
+      m = fillMask(area, PAINT_SIZE);
+      this.maskData.set(area, m);
+    }
+    return m;
+  }
+
   private maskTexture(area: FillArea) {
     let t = this.masks.get(area);
     if (!t) {
       t = new DataTexture(
-        fillMask(area, PAINT_SIZE),
+        this.maskArray(area),
         PAINT_SIZE,
         PAINT_SIZE,
         RedFormat,
@@ -348,36 +515,47 @@ export class PaintBook {
     return t;
   }
 
-  private draw(op: PaintOp) {
-    const gl = this.renderer;
-    if (!gl) return;
-    // 1. Coverage into the scratch texture.
+  private drawDabs(
+    gl: WebGLRenderer,
+    dabs: Dab[],
+    r: number,
+    hardness: number,
+  ) {
+    const geometry = dabGeometry(dabs, r);
+    this.dab.uniforms.uHardness.value = Math.min(0.95, Math.max(0, hardness));
     gl.setRenderTarget(this.scratch);
-    gl.setClearColor(0x000000, 0);
-    gl.clear(true, false, false);
-    if (op.kind === "fill") {
-      this.mask.uniforms.uMask.value = this.maskTexture(op.area);
-      this.render(gl, new Mesh(this.quad, this.mask));
-    } else if (op.dabs.length > 0) {
-      const geometry = dabGeometry(op.dabs, op.radius);
-      this.dab.uniforms.uHardness.value = Math.min(
-        0.95,
-        Math.max(0, op.hardness),
-      );
-      this.render(gl, new Mesh(geometry, this.dab));
-      geometry.dispose();
-    }
-    // 2. Lay it onto its finish, wipe it from the others.
+    this.render(gl, new Mesh(geometry, this.dab));
+    geometry.dispose();
+  }
+
+  private setLay(op: PaintOp) {
     const flow = Math.min(1, Math.max(0, op.flow));
     srgb(op.color, this.lay.uniforms.uColor.value);
     this.lay.uniforms.uFlow.value = flow;
     this.wipe.uniforms.uFlow.value = flow;
+  }
+
+  /** Lays the scratch coverage onto its finish and wipes it from the others. */
+  private layScratch(gl: WebGLRenderer, op: PaintOp) {
+    this.setLay(op);
     FINISHES.forEach((f) => {
-      gl.setRenderTarget(this.layers[f]);
+      gl.setRenderTarget(this.base[f]);
       this.render(
         gl,
         new Mesh(this.quad, f === op.finish ? this.lay : this.wipe),
       );
     });
+  }
+
+  private draw(gl: WebGLRenderer, op: PaintOp) {
+    clearTarget(gl, this.scratch);
+    if (op.kind === "fill") {
+      this.mask.uniforms.uMask.value = this.maskTexture(op.area);
+      gl.setRenderTarget(this.scratch);
+      this.render(gl, new Mesh(this.quad, this.mask));
+    } else if (op.dabs.length > 0) {
+      this.drawDabs(gl, op.dabs, op.radius, op.hardness);
+    }
+    this.layScratch(gl, op);
   }
 }

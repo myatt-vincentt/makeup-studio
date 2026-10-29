@@ -361,3 +361,74 @@ export const polylineYAt = (
   const last = line[line.length - 1];
   return Math.abs(x - first[0]) < Math.abs(x - last[0]) ? first[1] : last[1];
 };
+
+/**
+ * The nearest point where a ray meets the face mesh, with the mesh's points
+ * given as `positions` (468 × xyz, in the ray's space). Null on a miss.
+ */
+export const raycastFace = (
+  origin: readonly [number, number, number],
+  dir: readonly [number, number, number],
+  positions: ArrayLike<number>,
+): (SurfaceHit & { t: number }) | null => {
+  let best: (SurfaceHit & { t: number }) | null = null;
+  const [ox, oy, oz] = origin;
+  const [dx, dy, dz] = dir;
+  for (let t = 0; t < TRI_COUNT; t += 1) {
+    const i0 = corner(t, 0) * 3;
+    const i1 = corner(t, 1) * 3;
+    const i2 = corner(t, 2) * 3;
+    // Möller–Trumbore.
+    const e1x = positions[i1] - positions[i0];
+    const e1y = positions[i1 + 1] - positions[i0 + 1];
+    const e1z = positions[i1 + 2] - positions[i0 + 2];
+    const e2x = positions[i2] - positions[i0];
+    const e2y = positions[i2 + 1] - positions[i0 + 1];
+    const e2z = positions[i2 + 2] - positions[i0 + 2];
+    const px = dy * e2z - dz * e2y;
+    const py = dz * e2x - dx * e2z;
+    const pz = dx * e2y - dy * e2x;
+    const det = e1x * px + e1y * py + e1z * pz;
+    if (Math.abs(det) > 1e-12) {
+      const inv = 1 / det;
+      const sx = ox - positions[i0];
+      const sy = oy - positions[i0 + 1];
+      const sz = oz - positions[i0 + 2];
+      const b1 = (sx * px + sy * py + sz * pz) * inv;
+      if (b1 >= -1e-6 && b1 <= 1 + 1e-6) {
+        const qx = sy * e1z - sz * e1y;
+        const qy = sz * e1x - sx * e1z;
+        const qz = sx * e1y - sy * e1x;
+        const b2 = (dx * qx + dy * qy + dz * qz) * inv;
+        if (b2 >= -1e-6 && b1 + b2 <= 1 + 1e-6) {
+          const d = (e2x * qx + e2y * qy + e2z * qz) * inv;
+          if (d > 0 && (!best || d < best.t)) {
+            best = { tri: t, b0: 1 - b1 - b2, b1, b2, t: d };
+          }
+        }
+      }
+    }
+  }
+  return best;
+};
+
+/** A dab at a point on the mesh. */
+export const dabAtHit = (hit: SurfaceHit): Dab => {
+  const [u, v] = hitUv(hit);
+  return { u, v, jac: triangleJacobian(hit.tri) };
+};
+
+/** The rest position (cm) of a point on the mesh. */
+export const hitRest = (hit: SurfaceHit): [number, number, number] => {
+  const i0 = corner(hit.tri, 0) * 3;
+  const i1 = corner(hit.tri, 1) * 3;
+  const i2 = corner(hit.tri, 2) * 3;
+  return [0, 1, 2].map(
+    (k) =>
+      REST[i0 + k] * hit.b0 + REST[i1 + k] * hit.b1 + REST[i2 + k] * hit.b2,
+  ) as [number, number, number];
+};
+
+/** Roughly how many atlas units one cm of skin spans at a dab. */
+export const dabScale = (d: Dab) =>
+  Math.sqrt(Math.abs(d.jac[0] * d.jac[3] - d.jac[1] * d.jac[2])) || 0.05;

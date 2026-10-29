@@ -98,7 +98,7 @@ void main() {
   makeupSampleColor(s);
   paintCover = smoothstep(${COVER_FROM.toFixed(3)}, ${COVER_FULL.toFixed(3)}, paint.a);
   MakeupLayer layer = makeupFinish(s, paint.rgb, paint.a);
-  float k = clamp(paint.a, 0.0, 1.0) * s.fade;
+  float k = clamp(paint.a, 0.0, 1.0) * s.fade * clamp(uOpacity, 0.0, 1.0);
   layer.highlight += paintGlitter(s, mix(vec3(1.0), paint.rgb, 0.35)) * k;
   makeupOutput(s, layer);
 }
@@ -107,13 +107,24 @@ void main() {
 /** Shared clock for the glitter twinkle. */
 const PAINT_TIME = { value: 0 };
 
+/** How much of the paint shows: eased in when the first look appears. */
+const PAINT_SHOWN = { value: 1 };
+const FADE = { from: 0, seconds: 0.9, running: false };
+
+/** Fades the paint in from nothing (strict ease-out). */
+export const fadeInPaint = () => {
+  PAINT_SHOWN.value = 0;
+  FADE.from = -1;
+  FADE.running = true;
+};
+
 /** One material per layer, made by the layer (it owns and disposes it). */
 const paintMaterial = (ctx: MakeupMaterialContext<"design">) => (
   <shaderMaterial
     glslVersion={GLSL3}
     {...MAKEUP_BLENDING}
     depthWrite={false}
-    uniforms={{ ...ctx.uniforms, uTime: PAINT_TIME }}
+    uniforms={{ ...ctx.uniforms, uTime: PAINT_TIME, uOpacity: PAINT_SHOWN }}
     vertexShader={MAKEUP_GLSL.atlasVertex}
     fragmentShader={FRAGMENT}
   />
@@ -129,7 +140,14 @@ export const PaintLayers = () => {
     return () => book.attach(null);
   }, [book, gl]);
   useFrame(({ clock }) => {
-    PAINT_TIME.value = clock.elapsedTime;
+    const now = clock.elapsedTime;
+    PAINT_TIME.value = now;
+    if (FADE.running) {
+      if (FADE.from < 0) FADE.from = now;
+      const t = Math.min(1, (now - FADE.from) / FADE.seconds);
+      PAINT_SHOWN.value = 1 - (1 - t) ** 3;
+      FADE.running = t < 1;
+    }
   });
   return (
     <>

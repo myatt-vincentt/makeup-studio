@@ -81,3 +81,36 @@ describe("face atlas geometry", () => {
     expect(lit).toBeLessThan(64 * 64 * 0.05);
   });
 });
+
+describe("touching the face", () => {
+  it("finds the face point under a ray from the front", async () => {
+    const { raycastFace, hitUv } = await import("./atlas");
+    const hit = raycastFace([rest[3], rest[4], 50], [0, 0, -1], rest);
+    expect(hit).not.toBeNull();
+    const [u, v] = hitUv(hit!);
+    expect(u).toBeCloseTo(FACE_ATLAS_UVS[2], 2);
+    expect(v).toBeCloseTo(FACE_ATLAS_UVS[3], 2);
+  });
+
+  it("misses beside the face", async () => {
+    const { raycastFace } = await import("./atlas");
+    expect(raycastFace([30, 0, 50], [0, 0, -1], rest)).toBeNull();
+  });
+
+  it("tells which area a tap lands on", async () => {
+    const { raycastFace } = await import("./atlas");
+    const { areaAt } = await import("./picking");
+    const at = (landmark: number, dy = 0) =>
+      areaAt(
+        raycastFace(
+          [rest[landmark * 3], rest[landmark * 3 + 1] + dy, 50],
+          [0, 0, -1],
+          rest,
+        )!,
+        () => 0,
+      );
+    expect(at(17, 0.1)).toBe("lips"); // lower lip
+    expect(at(205)).toBe("cheeks"); // apple of the cheek
+    expect(at(10)).toBeNull(); // top of the forehead
+  });
+});

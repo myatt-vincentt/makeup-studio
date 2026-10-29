@@ -5,7 +5,7 @@ Optional dev-only preview media. Nothing here ships: only
 production builds.
 
 You don't need anything here. Without a webcam, `pnpm dev` starts on the SDK's
-built-in "Person Shaking Head" video and lists every SDK sample video and
+built-in "Person Looking" video and lists every SDK sample video and
 image. In development the number and letter keys paint ready-made makeup (see
 `src/makeup/DevKeys.tsx`).
 

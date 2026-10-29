@@ -92,8 +92,11 @@ const blushAt = (
   const cy = apple[1] + ay * 0.3;
   const s = (x - cx) * ux + (y - cy) * uy;
   const t = -(x - cx) * uy + (y - cy) * ux;
-  const r2 = (s / 2.2) ** 2 + (t / 1.35) ** 2;
-  return Math.exp(-2.2 * r2) * smooth(1.8, 3.4, eyeRing);
+  // Nearly round, with a long soft fade and no edge anywhere: it reaches
+  // zero well inside the area it is drawn over.
+  const r2 = (s / 1.9) ** 2 + (t / 1.55) ** 2;
+  const g = Math.exp(-1.9 * r2);
+  return Math.max(0, (g - 0.03) / 0.97) * smooth(0.8, 4, eyeRing);
 };
 
 /**
@@ -145,7 +148,7 @@ export const fillMask = (area: FillArea, size: number): Uint8ClampedArray => {
         size,
         {
           triangles: getFaceAtlasRegionTriangles("skin"),
-          box: { minAbsX: 1.2, maxAbsX: 8, minY: -4.5, maxY: 2.6 },
+          box: { minAbsX: 0.5, maxAbsX: 9, minY: -6, maxY: 3.5 },
         },
         (p) => blushAt(-Math.abs(p.x), p.y, p.eyeRing, apple, bone),
       );

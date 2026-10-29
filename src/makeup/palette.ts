@@ -6,7 +6,7 @@ export type Swatch = { id: string; hex: string };
 
 export const PALETTE: readonly Swatch[] = [
   { id: "nude", hex: "#c98b78" },
-  { id: "rose", hex: "#d4637d" },
+  { id: "rose", hex: "#b8656f" },
   { id: "coral", hex: "#f2705e" },
   { id: "red", hex: "#c4122f" },
   { id: "berry", hex: "#8c2251" },

@@ -236,6 +236,7 @@ export const Toolbar = () => {
               type="button"
               aria-label="Undo"
               className={`ms-btn ms-round ms-glass ${painted ? "" : "off"}`}
+              onClick={() => paintBook().undo()}
             >
               <UndoIcon />
             </button>
@@ -262,6 +263,7 @@ export const Toolbar = () => {
               type="button"
               aria-label="Clear"
               className={`ms-btn ms-round ms-glass ${painted ? "" : "off"}`}
+              onClick={() => paintBook().clear()}
             >
               <ClearIcon />
             </button>

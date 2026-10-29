@@ -157,11 +157,10 @@ export const LOOK_NAMES: readonly LookName[] = ["natural", "bold", "facePaint"];
 
 /** The three demo looks, as the paint each lays down. */
 export const looks: Record<LookName, () => PaintOp[]> = {
-  /** Everyday: a sheer blush wash and a soft lip tint. */
+  /** Everyday: a sheer blush wash and a soft rose lip tint. */
   natural: () => [
-    blushStroke(-1, "rose", 0.32),
-    blushStroke(1, "rose", 0.32),
-    fillOp("lips", "rose", "satin", 0.42),
+    fillOp("cheeks", "rose", "matte", 0.4),
+    fillOp("lips", "rose", "satin", 0.45),
   ],
   /** Evening: shimmering bronze lids, a black winged liner, red lips built up twice. */
   bold: () => [
