@@ -1,9 +1,11 @@
 // The makeup kit, in the control band at the bottom, wordless, on Night
 // glass. Three rows, top to bottom:
 //   colours    a scrolling row of glass swatches
-//   tools      brush sizes · finishes (matte, satin, shimmer)
-//   actions    undo · brush or fill · clear
-// Nothing sits over the face.
+//   tools      brush sizes · hold to compare · finishes (matte, satin, shimmer)
+//   actions    undo, clear · the shutter (centre) · brush or fill
+// Nothing sits over the face. The shutter takes a photo (photo.ts) with a
+// white flash; holding the eye fades the makeup off to show the bare face.
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { Html } from "@react-three/drei";
 
@@ -16,7 +18,14 @@ import {
   type Finish,
   type Mode,
 } from "./palette";
+import { fadePaint } from "./PaintLayers";
+import { usePhoto } from "./photo";
 import { paintBook, setTool, usePaintVersion, useTool } from "./state";
+
+/** Compare: how fast the makeup fades off and back (s). */
+const COMPARE_FADE = 0.15;
+/** The capture flash (ms). */
+const FLASH_MS = 360;
 
 const ARLES = "#f4d968";
 const CYPRESS = "#232528";
@@ -36,6 +45,16 @@ const CSS = `
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .ms-glass { background: rgb(35 37 40 / .82); } }
 .ms-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ms-actions { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+.ms-actions > :first-child { justify-self: start; display: flex; gap: 8px; }
+.ms-actions > :last-child { justify-self: end; }
+.ms-shutter { position: relative; width: 76px; height: 76px; border-radius: 50%; }
+.ms-shutter .ms-ring { position: absolute; inset: 5px; border-radius: 50%; border: 3px solid #fff; }
+.ms-shutter .ms-disc { position: absolute; inset: 13px; border-radius: 50%; background: ${ARLES}; }
+.ms-round.on { background: ${ARLES}; color: ${CYPRESS}; }
+.ms-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none;
+  transition: opacity ${FLASH_MS}ms ease-out; }
+.ms-flash.on { opacity: 1; transition: none; }
 .ms-btn { pointer-events: auto; border: 0; padding: 0; margin: 0; color: inherit;
   display: grid; place-items: center; cursor: pointer; outline: none; touch-action: manipulation;
   transition: transform 160ms ease-out, background-color 160ms ease-out,
@@ -106,6 +125,13 @@ const UndoIcon = () => (
   </Icon>
 );
 
+const EyeIcon = () => (
+  <Icon>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+    <circle cx="12" cy="12" r="3" />
+  </Icon>
+);
+
 const ClearIcon = () => (
   <Icon>
     <path d="M4 7h16" />
@@ -160,11 +186,27 @@ export const Toolbar = () => {
   usePaintVersion();
   const painted = !paintBook().empty;
   const hex = swatchHex(tool.color);
+  const [comparing, setComparing] = useState(false);
+  const [flash, setFlash] = useState(false);
+  const flashTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
+  const onFlash = useCallback(() => {
+    setFlash(true);
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlash(false), 30);
+  }, []);
+  const takePhoto = usePhoto(onFlash);
+  const compare = (on: boolean) => {
+    if (on === comparing) return;
+    setComparing(on);
+    fadePaint(on ? 0 : 1, COMPARE_FADE);
+  };
 
   return (
     <Html fullscreen zIndexRange={[30, 0]} style={{ pointerEvents: "none" }}>
       <style>{CSS}</style>
       <div className="ms-root">
+        <div className={`ms-flash ${flash ? "on" : ""}`} />
         <div className="ms-scrim" />
         <div className="ms-band">
           <div className="ms-swatches" role="radiogroup" aria-label="Colour">
@@ -210,6 +252,22 @@ export const Toolbar = () => {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              aria-label="Hold to compare"
+              aria-pressed={comparing}
+              className={`ms-btn ms-round ms-glass ${comparing ? "on" : ""}`}
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+                compare(true);
+              }}
+              onPointerUp={() => compare(false)}
+              onPointerCancel={() => compare(false)}
+              onLostPointerCapture={() => compare(false)}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <EyeIcon />
+            </button>
             <div
               className="ms-seg ms-glass"
               role="radiogroup"
@@ -231,14 +289,35 @@ export const Toolbar = () => {
             </div>
           </div>
 
-          <div className="ms-row">
+          <div className="ms-actions">
+            <div>
+              <button
+                type="button"
+                aria-label="Undo"
+                className={`ms-btn ms-round ms-glass ${painted ? "" : "off"}`}
+                onClick={() => paintBook().undo()}
+              >
+                <UndoIcon />
+              </button>
+              <button
+                type="button"
+                aria-label="Clear"
+                className={`ms-btn ms-round ms-glass ${painted ? "" : "off"}`}
+                onClick={() => paintBook().clear()}
+              >
+                <ClearIcon />
+              </button>
+            </div>
             <button
               type="button"
-              aria-label="Undo"
-              className={`ms-btn ms-round ms-glass ${painted ? "" : "off"}`}
-              onClick={() => paintBook().undo()}
+              aria-label="Take a photo"
+              className="ms-btn ms-glass ms-shutter"
+              onClick={() => {
+                takePhoto();
+              }}
             >
-              <UndoIcon />
+              <span className="ms-ring" />
+              <span className="ms-disc" />
             </button>
             <div
               className="ms-seg ms-glass"
@@ -259,14 +338,6 @@ export const Toolbar = () => {
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              aria-label="Clear"
-              className={`ms-btn ms-round ms-glass ${painted ? "" : "off"}`}
-              onClick={() => paintBook().clear()}
-            >
-              <ClearIcon />
-            </button>
           </div>
         </div>
       </div>

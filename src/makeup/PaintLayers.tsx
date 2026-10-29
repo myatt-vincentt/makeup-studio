@@ -107,15 +107,23 @@ void main() {
 /** Shared clock for the glitter twinkle. */
 const PAINT_TIME = { value: 0 };
 
-/** How much of the paint shows: eased in when the first look appears. */
+/** How much of the paint shows (fades in for the first look, off to compare). */
 const PAINT_SHOWN = { value: 1 };
-const FADE = { from: 0, seconds: 0.9, running: false };
+const FADE = { from: 1, to: 1, start: -1, seconds: 0.9, running: false };
 
-/** Fades the paint in from nothing (strict ease-out). */
+/** Fades the paint to `to` (0 hidden … 1 shown) over `seconds`, strict ease-out. */
+export const fadePaint = (to: number, seconds: number) => {
+  FADE.from = PAINT_SHOWN.value;
+  FADE.to = to;
+  FADE.seconds = seconds;
+  FADE.start = -1;
+  FADE.running = true;
+};
+
+/** Fades the paint in from nothing. */
 export const fadeInPaint = () => {
   PAINT_SHOWN.value = 0;
-  FADE.from = -1;
-  FADE.running = true;
+  fadePaint(1, 0.9);
 };
 
 /** One material per layer, made by the layer (it owns and disposes it). */
@@ -143,9 +151,10 @@ export const PaintLayers = () => {
     const now = clock.elapsedTime;
     PAINT_TIME.value = now;
     if (FADE.running) {
-      if (FADE.from < 0) FADE.from = now;
-      const t = Math.min(1, (now - FADE.from) / FADE.seconds);
-      PAINT_SHOWN.value = 1 - (1 - t) ** 3;
+      if (FADE.start < 0) FADE.start = now;
+      const t = Math.min(1, (now - FADE.start) / Math.max(1e-3, FADE.seconds));
+      const k = 1 - (1 - t) ** 3;
+      PAINT_SHOWN.value = FADE.from + (FADE.to - FADE.from) * k;
       FADE.running = t < 1;
     }
   });

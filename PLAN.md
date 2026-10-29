@@ -18,11 +18,16 @@ to colour it. From a sheer everyday look to bold face paint.
   so a stroke is even; strokes build up over each other.
 - **Fill.** Lips, cheeks (blush), upper lids (shadow), lash line (liner with a
   flick) and brows, as soft masks described on the canonical face.
-- **Controls.** In the bottom control band, wordless, on Night glass: colours,
-  brush sizes, finishes, undo, brush or fill, clear.
+- **Controls.** In the bottom control band, wordless, on Night glass: colours;
+  brush sizes, hold to compare, finishes; undo, clear, the shutter, brush or
+  fill.
+- **Photo.** The picture with the makeup at the top quality tier, the Made with
+  Vincentt mark drawn in at the bottom right, saved to the share sheet on a
+  phone or downloaded on a computer.
 
 ## Steps
 
 1. Looks: the paint layer, fills, finishes, demo strokes and the controls laid
    out. Done.
-2. Finger painting and tap-to-fill, undo, hold to compare, photo capture.
+2. Finger painting and tap-to-fill, undo, hold to compare, photo capture,
+   full-screen picture. Done.
