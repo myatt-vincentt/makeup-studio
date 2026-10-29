@@ -7,6 +7,7 @@ builds up to bold face paint. A soft natural look appears when your face is foun
 to see your bare face, undo or clear any time, and the shutter saves a photo of your look with the
 Made with Vincentt mark. The picture fills the whole screen.
 
+- Thumbnail: `public/images/makeup-studio-thumbnail.jpg` (the share image).
 - The paint lives on the SDK's face atlas and is drawn on the live face mesh, so it stays put
   through every move and expression (`src/makeup/PaintLayers.tsx`, `paint.ts`); fill areas are
   soft masks on the canonical face (`masks.ts`).
