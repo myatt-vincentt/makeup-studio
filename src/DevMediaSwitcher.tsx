@@ -105,9 +105,17 @@ const streamFromClip = async (url: string) => {
     video.onloadeddata = () => resolve();
     video.onerror = () => reject(new Error(`failed to load ${url}`));
   });
+  // The app fills the window and cover-fits the camera. A portrait clip in a
+  // wider window would lose the face to that crop, so the clip is set in a
+  // frame of the window's shape (at load), dark at the sides: the cover-fit
+  // then crops nothing.
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const windowAspect = window.innerWidth / Math.max(1, window.innerHeight);
   const canvas = document.createElement("canvas");
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
+  canvas.width = Math.max(vw, Math.round(vh * windowAspect));
+  canvas.height = vh;
+  const left = (canvas.width - vw) / 2;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("2d canvas context unavailable");
   let stopped = false;
@@ -115,9 +123,11 @@ const streamFromClip = async (url: string) => {
   const draw = () => {
     if (stopped) return;
     if (video.paused) video.play().catch(() => {});
+    ctx.fillStyle = "#16171a";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.save();
     ctx.scale(-1, 1);
-    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, -left - vw, 0, vw, vh);
     ctx.restore();
     raf = requestAnimationFrame(draw);
   };
