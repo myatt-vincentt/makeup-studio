@@ -1,9 +1,10 @@
 {
-  "title": "Makeup Studio - Vincentt",
+  "title": "Makeup Studio",
   "description": "Paint your own makeup on your face, or tap an area to colour it",
   "image": "/images/og-default.jpg",
-  "imageAlt": "Vincentt — Augmented Reality App builder",
+  "imageAlt": "Makeup Studio — a camera experience built with Vincentt",
   "imageWidth": 1200,
   "imageHeight": 630,
-  "imageType": "image/jpeg"
+  "imageType": "image/jpeg",
+  "url": "https://makeup-studio.vincentt.app"
 }

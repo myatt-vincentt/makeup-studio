@@ -21,13 +21,8 @@ to colour it. From a sheer everyday look to bold face paint.
 - **Controls.** In the bottom control band, wordless, on Night glass: colours;
   brush sizes, hold to compare, finishes; undo, clear, the shutter, brush or
   fill.
+- **Full screen.** The picture fills the whole window (`src/App.tsx` swaps the
+  9:16 frame for a full-window container).
 - **Photo.** The picture with the makeup at the top quality tier, the Made with
   Vincentt mark drawn in at the bottom right, saved to the share sheet on a
   phone or downloaded on a computer.
-
-## Steps
-
-1. Looks: the paint layer, fills, finishes, demo strokes and the controls laid
-   out. Done.
-2. Finger painting and tap-to-fill, undo, hold to compare, photo capture,
-   full-screen picture. Done.

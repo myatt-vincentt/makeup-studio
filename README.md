@@ -1,3 +1,24 @@
+# Makeup Studio
+
+Do your own makeup on your face, live. Drag a finger to paint, or switch to fill and tap your
+lips, cheeks, eyelids, lash line or brows to colour them. Fifteen shades, three brush sizes and
+matte, satin or shimmer finishes; a thin layer tints the skin like a stain, and painting over it
+builds up to bold face paint. A soft natural look appears when your face is found, hold the eye
+to see your bare face, undo or clear any time, and the shutter saves a photo of your look with the
+Made with Vincentt mark. The picture fills the whole screen.
+
+- The paint lives on the SDK's face atlas and is drawn on the live face mesh, so it stays put
+  through every move and expression (`src/makeup/PaintLayers.tsx`, `paint.ts`); fill areas are
+  soft masks on the canonical face (`masks.ts`).
+- Touches are placed on the face mesh (`PaintInput.tsx`, `picking.ts`); the controls are in
+  `Toolbar.tsx`, the photo in `photo.ts`.
+- `src/App.tsx` uses a full-window container instead of the 9:16 frame; re-apply after a template
+  upgrade.
+- Dev preview without a camera: the media switcher starts on the SDK's sample video; 1–3 apply
+  demo looks, x clears, z undoes. How it works: `PLAN.md`.
+
+---
+
 # v2-template
 
 The Vincentt starter app: a real React + R3F + Vincentt XR SDK (`@vincentt-xr/sdk`)
